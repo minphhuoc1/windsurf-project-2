@@ -73,7 +73,7 @@ streamlit run app.py
 
 ### **Cách 2: Dùng online (Streamlit Cloud)**
 
-Truy cập: **[Link app online]** (sẽ cập nhật sau khi deploy)
+Truy cập: **https://email-ai-generate.streamlit.app/** 
 
 ---
 
