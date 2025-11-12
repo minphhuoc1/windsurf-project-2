@@ -361,18 +361,20 @@ def normalize_signature_text(sig: str, lang: str) -> str:
     s = (sig or "").strip()
     if not s:
         return s
+    
     if is_vi(lang):
-        # ép về "Trân trọng,"
-        s = re.sub(r"(?i)^(best\s*regard[s]?\s*,?)", "Trân trọng,", s)
-        if not s.lower().startswith("trân trọng"):
-            s = "Trân trọng,"
+        # Chuyển "Best regards" → "Trân trọng" (giữ tên)
+        s = re.sub(r"(?i)^best\s*regards?\s*,?\s*", "Trân trọng, ", s)
+        # Nếu không có salutation, thêm "Trân trọng,"
+        if not re.match(r"(?i)^(trân\s*trọng|best\s*regards)", s):
+            s = "Trân trọng, " + s
     else:
-        # ép về "Best regards,"
-        s = re.sub(r"(?i)^(trân\s*trọng\s*,?)", "Best regards,", s)
-        if not s.lower().startswith("best regards"):
-            s = "Best regards,"
-        if not re.search(r"\n\s*Phuoc\s+Doan\s*$", s, re.IGNORECASE):
-            s = s + "\nPhuoc Doan"
+        # Chuyển "Trân trọng" → "Best regards" (giữ tên)
+        s = re.sub(r"(?i)^trân\s*trọng\s*,?\s*", "Best regards, ", s)
+        # Nếu không có salutation, thêm "Best regards,"
+        if not re.match(r"(?i)^(trân\s*trọng|best\s*regards)", s):
+            s = "Best regards, " + s
+    
     return s
 
 def dedupe_signature(body: str, normalized_sig: str) -> str:
