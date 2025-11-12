@@ -266,5 +266,5 @@ MIT License - Tự do sử dụng, sửa đổi, phân phối
 ---
 
 **Phiên bản:** 1.0  
-**Cập nhật lần cuối:** November 2024  
+**Cập nhật lần cuối:** November 2025  
 **Tác giả:** Phuoc Doan
