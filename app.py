@@ -344,15 +344,10 @@ def enforce_rules(subject: str,
     body = re.sub(r"\n\n+", "\n\n", body)
 
     # Bảo toàn chữ ký (tránh lặp)
-    # Kiểm tra xem signature đã tồn tại trong body chưa (bất kỳ dạng nào)
     if signature:
-        sig_lines = signature.strip().split('\n')
-        name = sig_lines[-1].strip() if sig_lines else ""
-        # Nếu tên chưa có trong body → thêm signature
-        if name and name not in body:
-            body += f"\n\n{signature}"
-        elif not name and signature not in body:
-            body += f"\n\n{signature}"
+        body = body.rstrip()
+        if not has_signature_block(body, signature):
+            body = f"{body}\n\n{signature}" if body else signature
 
     return subject, body
 
@@ -377,39 +372,54 @@ def normalize_signature_text(sig: str, lang: str) -> str:
     
     return s
 
+def _canonicalize_signature_lines(lines: list[str]) -> list[str]:
+    canon = []
+    for line in lines:
+        simplified = re.sub(r"\s+", " ", line.strip())
+        if not simplified:
+            continue
+        simplified = re.sub(r"[.,]+$", "", simplified).lower()
+        canon.append(simplified)
+    return canon
+
 def dedupe_signature(body: str, normalized_sig: str) -> str:
-    # xoá chữ ký trùng cuối thư (không phân biệt khoảng trắng/hoa thường)
     if not body or not normalized_sig:
         return body
-    
-    # Trích tên từ normalized_sig (dòng cuối)
-    sig_lines = normalized_sig.strip().split('\n')
-    name = sig_lines[-1].strip() if sig_lines else ""
-    
-    if not name:
-        return body
-    
-    # Pattern 1: Xóa TẤT CẢ signature với salutation + tên (bất kỳ format nào)
-    # Bắt: (optional newline) + salutation + (optional newline/space) + name
-    # Ví dụ: "Trân trọng,\nTuyen Nguyen" hoặc "Trân trọng, Tuyen Nguyen"
-    # Xóa tất cả lần (không chỉ lần cuối)
-    pattern1 = rf"(?:\n|\r|\r\n)?\s*(?:Trân\s*trọng|Best\s*regards|Warm\s*regards)\s*,?\s*(?:\n|\r|\r\n)?\s*{re.escape(name)}\s*(?:\n|$)"
-    cleaned = re.sub(pattern1, "\n", body, flags=re.IGNORECASE)
-    
-    # Pattern 2: Xóa signature chỉ có tên (nếu vẫn còn)
-    # Xóa tất cả lần tên nếu có nhiều hơn 1 lần
-    if name in cleaned:
-        count = len(re.findall(re.escape(name), cleaned, re.IGNORECASE))
-        if count > 1:
-            # Xóa tất cả lần tên (không chỉ lần cuối)
-            pattern2 = rf"(?:\n|\r|\r\n)+\s*{re.escape(name)}\s*(?:\n|$)"
-            cleaned = re.sub(pattern2, "\n", cleaned, flags=re.IGNORECASE)
-    
-    # Xóa dòng trống thừa
-    cleaned = re.sub(r"\n\n+", "\n", cleaned)
-    
-    return cleaned
 
+    sig_lines = [line for line in normalized_sig.strip().splitlines() if line.strip()]
+    if not sig_lines:
+        return body
+
+    sig_canon = _canonicalize_signature_lines(sig_lines)
+    lines = body.rstrip().splitlines()
+
+    while len(lines) >= len(sig_lines):
+        tail = lines[-len(sig_lines):]
+        tail_canon = _canonicalize_signature_lines(tail)
+        if tail_canon == sig_canon:
+            lines = lines[:-len(sig_lines)]
+            while lines and not lines[-1].strip():
+                lines.pop()
+        else:
+            break
+
+    return "\n".join(lines).rstrip()
+
+def has_signature_block(body: str, normalized_sig: str) -> bool:
+    if not body or not normalized_sig:
+        return False
+
+    sig_lines = [line for line in normalized_sig.strip().splitlines() if line.strip()]
+    if not sig_lines:
+        return False
+
+    sig_canon = _canonicalize_signature_lines(sig_lines)
+    body_lines = body.rstrip().splitlines()
+    if len(body_lines) < len(sig_lines):
+        return False
+
+    tail = body_lines[-len(sig_lines):]
+    return _canonicalize_signature_lines(tail) == sig_canon
 
 def has_cta_invite(body: str, lang: str) -> bool:
     t = (body or "").lower()
