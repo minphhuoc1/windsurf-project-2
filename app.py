@@ -353,24 +353,41 @@ def enforce_rules(subject: str,
 
 
 def normalize_signature_text(sig: str, lang: str) -> str:
-    s = (sig or "").strip()
-    if not s:
-        return s
-    
+    raw = (sig or "").strip()
+    if not raw:
+        return raw
+
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [line.strip() for line in raw.split("\n") if line.strip()]
+
     if is_vi(lang):
-        # Chuyển "Best regards" → "Trân trọng" (giữ tên)
-        s = re.sub(r"(?i)^best\s*regards?\s*,?\s*", "Trân trọng, ", s)
-        # Nếu không có salutation, thêm "Trân trọng,"
-        if not re.match(r"(?i)^(trân\s*trọng|best\s*regards)", s):
-            s = "Trân trọng, " + s
+        target_salutation = "Trân trọng,"
+        sal_pattern = re.compile(r"(?i)^(trân\s*trọng|best\s*regards|warm\s*regards)\b[\s,]*?(.*)$")
     else:
-        # Chuyển "Trân trọng" → "Best regards" (giữ tên)
-        s = re.sub(r"(?i)^trân\s*trọng\s*,?\s*", "Best regards, ", s)
-        # Nếu không có salutation, thêm "Best regards,"
-        if not re.match(r"(?i)^(trân\s*trọng|best\s*regards)", s):
-            s = "Best regards, " + s
-    
-    return s
+        target_salutation = "Best regards,"
+        sal_pattern = re.compile(r"(?i)^(best\s*regards|trân\s*trọng|warm\s*regards)\b[\s,]*?(.*)$")
+
+    name_parts: list[str] = []
+
+    if lines:
+        match = sal_pattern.match(lines[0])
+        if match:
+            remainder = match.group(2).strip()
+            if remainder:
+                name_parts.append(remainder)
+        else:
+            # Dòng đầu tiên không phải salutation => coi là tên
+            name_parts.append(lines[0])
+
+        if len(lines) > 1:
+            name_parts.extend(lines[1:])
+
+    name_line = " ".join(name_parts).strip()
+
+    if not name_line:
+        return target_salutation
+
+    return f"{target_salutation}\n{name_line}"
 
 def _canonicalize_signature_lines(lines: list[str]) -> list[str]:
     canon = []
