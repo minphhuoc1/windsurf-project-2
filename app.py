@@ -711,10 +711,14 @@ if gen_btn:
                 vars_map["meeting_link"] = st.session_state.var_meeting_link.strip()
             vars_map["_cta_template"] = st.session_state.get("cta_template")
             details_filled = interpolate_variables(st.session_state.details, vars_map)
+            
+            # Normalize signature TRƯỚC khi truyền vào prompt (tránh lặp)
+            normalized_sig = normalize_signature_text(st.session_state.signature, st.session_state.lang)
+            
             prompt = build_json_prompt(
                 st.session_state.purpose, st.session_state.tone,
                 st.session_state.recipient, details_filled,
-                st.session_state.lang, st.session_state.signature,
+                st.session_state.lang, normalized_sig,
                 words=words, require_cta=effective_require_cta,
                 salutation_line=salutation_line,
                 variables=vars_map  # Truyền variables để model biết link thực tế
@@ -731,13 +735,13 @@ if gen_btn:
 
             # Làm sạch body trước khi enforce
             body_raw = trim_pleasantries(body_raw, lang, purpose)
-            signature = normalize_signature_text(signature, lang)
-            body_raw = dedupe_signature(body_raw, signature)
+            # signature đã normalize ở trên, chỉ cần dedupe
+            body_raw = dedupe_signature(body_raw, normalized_sig)
             body_raw = tune_audience(body_raw, st.session_state.audience, st.session_state.lang)
 
 
             subject, body = enforce_rules(
-                subject_raw, body_raw, signature,
+                subject_raw, body_raw, normalized_sig,
                 require_cta=effective_require_cta,
                 purpose=purpose,
                 lang=lang,
