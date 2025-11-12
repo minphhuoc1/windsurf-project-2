@@ -322,58 +322,63 @@ def enforce_rules_v2(subject: str,
 def normalize_signature_text(sig: str, lang: str) -> str:
     """
     Chuẩn hóa signature theo ngôn ngữ
-    Xử lý cả 2 format:
-    - Format 1: "Trân trọng, Phuoc Doan" (cùng dòng)
-    - Format 2: "Trân trọng,\nPhuoc Doan" (xuống dòng)
+    LUÔN trả về format: "Salutation,\nName" (xuống hàng)
     """
     if not sig or not sig.strip():
         return ""
     
     sig = sig.strip()
+    lines = sig.split('\n')
     
+    # Lấy salutation (dòng đầu) và name (phần còn lại)
+    salutation = lines[0].strip() if lines else ""
+    name_part = '\n'.join(lines[1:]).strip() if len(lines) > 1 else ""
+    
+    # Nếu chỉ có 1 dòng, cố gắng tách salutation và name
+    if not name_part and salutation:
+        # Pattern: "Best regards, Name" hoặc "Trân trọng, Name"
+        match = re.match(r'^(Best regards|Warm regards|Sincerely|Trân trọng),?\s+(.+)$', salutation, re.IGNORECASE)
+        if match:
+            salutation = match.group(1)
+            name_part = match.group(2)
+    
+    # Chuẩn hóa salutation theo ngôn ngữ
     if is_vi(lang):
         # EN → VI
-        # Pattern 1: "Best regards, Name" (cùng dòng)
-        sig = re.sub(
-            r'^(Best regards|Warm regards|Sincerely),?\s+(.+)$',
-            r'Trân trọng, \2',
-            sig,
-            flags=re.IGNORECASE | re.MULTILINE
-        )
-        # Pattern 2: "Best regards,\nName" (xuống dòng)
-        sig = re.sub(
-            r'^(Best regards|Warm regards|Sincerely),?\s*$',
-            'Trân trọng,',
-            sig,
-            flags=re.IGNORECASE | re.MULTILINE
-        )
+        if re.match(r'^(Best regards|Warm regards|Sincerely)', salutation, re.IGNORECASE):
+            salutation = "Trân trọng"
+        # Giữ nguyên nếu đã là VI
     else:
         # VI → EN
-        # Pattern 1: "Trân trọng, Name" (cùng dòng)
-        sig = re.sub(
-            r'^Trân trọng,?\s+(.+)$',
-            r'Best regards, \1',
-            sig,
-            flags=re.IGNORECASE | re.MULTILINE
-        )
-        # Pattern 2: "Trân trọng,\nName" (xuống dòng)
-        sig = re.sub(
-            r'^Trân trọng,?\s*$',
-            'Best regards,',
-            sig,
-            flags=re.IGNORECASE | re.MULTILINE
-        )
+        if re.match(r'^Trân trọng', salutation, re.IGNORECASE):
+            salutation = "Best regards"
+        # Giữ nguyên nếu đã là EN
     
-    return sig.strip()
+    # Trả về format chuẩn: "Salutation,\nName"
+    if name_part:
+        return f"{salutation},\n{name_part}"
+    else:
+        return salutation
 
 def get_signature_canonical(sig: str) -> str:
     """
     Tạo dạng chuẩn để so sánh (loại bỏ noise nhưng GIỮ CẤU TRÚC)
+    Xử lý cả 2 format: "Salutation, Name" (cùng dòng) và "Salutation,\nName" (xuống dòng)
     """
     if not sig:
         return ""
     
-    lines = sig.strip().split('\n')
+    sig = sig.strip()
+    
+    # Xử lý format cùng dòng: "Best regards, Name" → "Best regards,\nName"
+    sig = re.sub(
+        r'^(Best regards|Warm regards|Sincerely|Trân trọng),?\s+(.+)$',
+        r'\1,\n\2',
+        sig,
+        flags=re.IGNORECASE | re.MULTILINE
+    )
+    
+    lines = sig.split('\n')
     canonical = []
     
     for line in lines:
@@ -516,6 +521,7 @@ def remove_signature(body: str, signature: str) -> str:
 def add_signature(body: str, signature: str) -> str:
     """
     Thêm signature vào body (CHỈ KHI chưa có)
+    Format: body + 2 dòng trống + signature (với xuống hàng)
     """
     if not signature:
         return body
@@ -524,9 +530,18 @@ def add_signature(body: str, signature: str) -> str:
     if has_signature(body, signature):
         return body
     
+    # Đảm bảo signature có format chuẩn (xuống hàng)
+    sig_lines = signature.strip().split('\n')
+    if len(sig_lines) == 1:
+        # Nếu chỉ có 1 dòng, giữ nguyên (có thể là chỉ salutation)
+        formatted_sig = signature.strip()
+    else:
+        # Nếu có nhiều dòng, đảm bảo format: "Salutation,\nName"
+        formatted_sig = '\n'.join(sig_lines)
+    
     # Thêm với format chuẩn: body + 2 dòng trống + signature
     body = body.rstrip()
-    return f"{body}\n\n{signature.strip()}" if body else signature.strip()
+    return f"{body}\n\n{formatted_sig}" if body else formatted_sig
 
 def has_cta_invite(body: str, lang: str) -> bool:
     t = (body or "").lower()
