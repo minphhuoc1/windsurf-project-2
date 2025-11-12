@@ -321,23 +321,48 @@ def enforce_rules_v2(subject: str,
 
 def normalize_signature_text(sig: str, lang: str) -> str:
     """
-    Mục đích DUY NHẤT: Dịch salutation cho đúng ngôn ngữ
-    KHÔNG thêm/xóa gì cả, chỉ thay thế "Best regards" ↔ "Trân trọng"
+    Chuẩn hóa signature theo ngôn ngữ
+    Xử lý cả 2 format:
+    - Format 1: "Trân trọng, Phuoc Doan" (cùng dòng)
+    - Format 2: "Trân trọng,\nPhuoc Doan" (xuống dòng)
     """
     if not sig or not sig.strip():
         return ""
     
     sig = sig.strip()
     
-    # Dịch salutation nếu cần
     if is_vi(lang):
         # EN → VI
-        sig = re.sub(r'^Best regards,?\s*', 'Trân trọng,\n', sig, flags=re.IGNORECASE)
-        sig = re.sub(r'^Warm regards,?\s*', 'Trân trọng,\n', sig, flags=re.IGNORECASE)
-        sig = re.sub(r'^Sincerely,?\s*', 'Trân trọng,\n', sig, flags=re.IGNORECASE)
+        # Pattern 1: "Best regards, Name" (cùng dòng)
+        sig = re.sub(
+            r'^(Best regards|Warm regards|Sincerely),?\s+(.+)$',
+            r'Trân trọng, \2',
+            sig,
+            flags=re.IGNORECASE | re.MULTILINE
+        )
+        # Pattern 2: "Best regards,\nName" (xuống dòng)
+        sig = re.sub(
+            r'^(Best regards|Warm regards|Sincerely),?\s*$',
+            'Trân trọng,',
+            sig,
+            flags=re.IGNORECASE | re.MULTILINE
+        )
     else:
         # VI → EN
-        sig = re.sub(r'^Trân trọng,?\s*', 'Best regards,\n', sig, flags=re.IGNORECASE)
+        # Pattern 1: "Trân trọng, Name" (cùng dòng)
+        sig = re.sub(
+            r'^Trân trọng,?\s+(.+)$',
+            r'Best regards, \1',
+            sig,
+            flags=re.IGNORECASE | re.MULTILINE
+        )
+        # Pattern 2: "Trân trọng,\nName" (xuống dòng)
+        sig = re.sub(
+            r'^Trân trọng,?\s*$',
+            'Best regards,',
+            sig,
+            flags=re.IGNORECASE | re.MULTILINE
+        )
     
     return sig.strip()
 
