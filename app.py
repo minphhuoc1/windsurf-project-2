@@ -393,11 +393,32 @@ def _canonicalize_signature_lines(lines: list[str]) -> list[str]:
     canon = []
     for line in lines:
         simplified = re.sub(r"\s+", " ", line.strip())
+        simplified = simplified.strip(" ,.;:-")
         if not simplified:
             continue
-        simplified = re.sub(r"[.,]+$", "", simplified).lower()
-        canon.append(simplified)
+        canon.append(simplified.lower())
     return canon
+
+
+def _collect_tail_block(lines: list[str], sig_len: int) -> tuple[list[str], list[int]]:
+    idx = len(lines) - 1
+    collected: list[str] = []
+    positions: list[int] = []
+
+    while idx >= 0 and len(collected) < sig_len:
+        raw = lines[idx]
+        if raw.strip():
+            collected.append(raw)
+            positions.append(idx)
+        idx -= 1
+
+    if len(collected) < sig_len:
+        return [], []
+
+    collected.reverse()
+    positions.reverse()
+    return collected, positions
+
 
 def dedupe_signature(body: str, normalized_sig: str) -> str:
     if not body or not normalized_sig:
@@ -408,19 +429,27 @@ def dedupe_signature(body: str, normalized_sig: str) -> str:
         return body
 
     sig_canon = _canonicalize_signature_lines(sig_lines)
+    if not sig_canon:
+        return body
+
     lines = body.rstrip().splitlines()
 
     while len(lines) >= len(sig_lines):
-        tail = lines[-len(sig_lines):]
-        tail_canon = _canonicalize_signature_lines(tail)
-        if tail_canon == sig_canon:
-            lines = lines[:-len(sig_lines)]
-            while lines and not lines[-1].strip():
-                lines.pop()
-        else:
+        tail_lines, positions = _collect_tail_block(lines, len(sig_canon))
+        if not tail_lines:
             break
 
+        tail_canon = _canonicalize_signature_lines(tail_lines)
+        if tail_canon != sig_canon:
+            break
+
+        for pos in reversed(positions):
+            del lines[pos]
+        while lines and not lines[-1].strip():
+            lines.pop()
+
     return "\n".join(lines).rstrip()
+
 
 def has_signature_block(body: str, normalized_sig: str) -> bool:
     if not body or not normalized_sig:
@@ -433,10 +462,13 @@ def has_signature_block(body: str, normalized_sig: str) -> bool:
     sig_canon = _canonicalize_signature_lines(sig_lines)
     body_lines = body.rstrip().splitlines()
     if len(body_lines) < len(sig_lines):
+        body_lines = body_lines  # keep for clarity, but will fail below
+
+    tail_lines, _ = _collect_tail_block(body_lines, len(sig_canon))
+    if not tail_lines:
         return False
 
-    tail = body_lines[-len(sig_lines):]
-    return _canonicalize_signature_lines(tail) == sig_canon
+    return _canonicalize_signature_lines(tail_lines) == sig_canon
 
 def has_cta_invite(body: str, lang: str) -> bool:
     t = (body or "").lower()
