@@ -218,34 +218,6 @@ Xem file `TEST_SCENARIOS_NO_PRESET.md` để test 8 kịch bản khác nhau.
 
 ---
 
-## 🚀 **Deploy lên Streamlit Cloud**
-
-### **Bước 1: Push code lên GitHub**
-```bash
-git add .
-git commit -m "Ready for deployment"
-git push origin main
-```
-
-### **Bước 2: Deploy trên Streamlit Cloud**
-1. Truy cập: https://share.streamlit.io
-2. Click **"New app"**
-3. Chọn repo: `minphhuoc1/windsurf-project-2`
-4. Chọn file: `app.py`
-5. Click **"Deploy"**
-
-### **Bước 3: Cấu hình Secrets**
-1. Vào Settings → Secrets
-2. Thêm:
-   ```toml
-   GEMINI_API_KEY = "your_api_key"
-   ```
-3. Click **"Save"** → chờ 1 phút
-
-**Kết quả:** App chạy trên `https://your-app-name.streamlit.app`
-
----
-
 ## 📝 **Changelog**
 
 ### **v1.0 (Current)**
@@ -260,31 +232,11 @@ git push origin main
 
 ---
 
-## 🐛 **Troubleshooting**
-
-### **Lỗi: "Missing GEMINI_API_KEY"**
-- ✅ Kiểm tra file `.env` có tồn tại
-- ✅ Kiểm tra API key đúng format
-- ✅ Restart app: `streamlit run app.py`
-
-### **Lỗi: "Quota exceeded"**
-- ✅ Chờ đến ngày mai (quota reset hàng ngày)
-- ✅ Hoặc upgrade lên paid plan
-
-### **Email không có CTA**
-- ✅ Kiểm tra "Include CTA" có được bật
-- ✅ Kiểm tra purpose có hỗ trợ CTA
-
-### **Placeholder không được thay thế**
-- ✅ Kiểm tra variable có được nhập
-- ✅ Kiểm tra format: `{variable_name}`
-
----
 
 ## 📞 **Hỗ trợ & Liên hệ**
 
 - **GitHub Issues**: https://github.com/minphhuoc1/windsurf-project-2/issues
-- **Email**: [your-email@example.com]
+- **Email**: [phuocdoan333@gmail.com]
 
 ---
 
