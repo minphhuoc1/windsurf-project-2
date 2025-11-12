@@ -389,10 +389,10 @@ def dedupe_signature(body: str, normalized_sig: str) -> str:
     if not name:
         return body
     
-    # Pattern 1: Xóa signature với salutation + tên (có hoặc không có newline)
-    # Bắt: (salutation)(optional newline/space)(name)
-    # Ví dụ: "Best regards,\nTuyen Nguyen" hoặc "Best regards,Tuyen Nguyen"
-    pattern1 = rf"(?:\n|\r|\r\n)+\s*(?:Trân\s*trọng|Best\s*regards|Warm\s*regards)[,\s]*[\n\s]*{re.escape(name)}\s*$"
+    # Pattern 1: Xóa signature với salutation + tên
+    # Bắt: newline + salutation + comma/space + newline + name
+    # Ví dụ: "\nTrân trọng,\nTuyen Nguyen" hoặc "\nBest regards, Tuyen Nguyen"
+    pattern1 = rf"(?:\n|\r|\r\n)+\s*(?:Trân\s*trọng|Best\s*regards|Warm\s*regards)\s*,?\s*(?:\n|\r|\r\n)?\s*{re.escape(name)}\s*$"
     cleaned = re.sub(pattern1, "", body, flags=re.IGNORECASE)
     
     # Pattern 2: Xóa signature chỉ có tên (nếu vẫn còn)
