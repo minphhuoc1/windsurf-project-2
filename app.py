@@ -97,12 +97,14 @@ def call_gemini(prompt: str, temperature: float = 0.6) -> str:
     resp = model.generate_content(prompt)
     return resp.text.strip()
 
-def build_json_prompt(purpose, tone, recipient, details, lang, signature,
-                      words=120, require_cta=True, salutation_line="", variables=None):
-
+def build_json_prompt_v2(purpose, tone, recipient, details, lang, 
+                         words=120, require_cta=True, salutation_line="", variables=None):
+    """
+    Version mới: KHÔNG yêu cầu model thêm signature
+    Signature sẽ được xử lý bởi code sau khi model trả về
+    """
     cta_rule = "Include a clear call-to-action at the end." if require_cta else "Do not include a call-to-action."
     
-    # Xây dựng phần variables info
     var_info = ""
     if variables:
         var_items = []
@@ -128,19 +130,17 @@ Constraints (non-negotiable):
 - Body around {words} words
 - Use the provided recipient if available; otherwise keep it natural
 - {cta_rule}
-- The body MUST end with the signature below.
 - Start the body with this exact salutation line (if non-empty): "{salutation_line}"
+- Do NOT add any closing signature (like "Best regards" or "Trân trọng"). The body should end with the main content or CTA.
 - Do NOT use placeholders like [Link...] or [form...]. Use actual values from variables if available.
-
 
 Context:
 - Purpose: {purpose}
 - Recipient: {recipient or "N/A"}
-- Details: {details or "N/A"}
-- Signature: {signature}{var_info}
+- Details: {details or "N/A"}{var_info}
 
 Return EXACTLY this JSON shape:
-{{"subject": "<one line>", "body": "<multi-line email body ending with the signature>"}}
+{{"subject": "<one line>", "body": "<multi-line email body WITHOUT signature>"}}
 """.strip()
 
 
@@ -231,14 +231,17 @@ def has_cta_in_body(body: str, lang: str) -> bool:
         ]
     return any(re.search(p, t, re.IGNORECASE) for p in patterns)
 
-def enforce_rules(subject: str,
-                  body: str,
-                  signature: str,
-                  require_cta: bool = True,
-                  purpose: str = None,
-                  lang: str = "Vietnamese",
-                  audience: str = "B2B",
-                  variables: dict | None = None):
+def enforce_rules_v2(subject: str,
+                     body: str,
+                     require_cta: bool = True,
+                     purpose: str = None,
+                     lang: str = "Vietnamese",
+                     audience: str = "B2B",
+                     variables: dict | None = None):
+    """
+    Version mới: KHÔNG xử lý signature
+    Chỉ xử lý: subject length, CTA, placeholder cleanup
+    """
     subject = (subject or "Generated Email").strip()
     if len(subject) > 70:
         subject = subject[:67].rstrip() + "..."
@@ -258,23 +261,15 @@ def enforce_rules(subject: str,
     purpose = (purpose or "").strip()
     purpose_vi = purpose.lower()
 
-    is_apology = "customer reply" in purpose_vi or "phản hồi khách hàng" in purpose_vi
-    is_status  = "status update" in purpose_vi or "cập nhật tiến độ" in purpose_vi
-    is_leave   = "leave request" in purpose_vi or "xin nghỉ" in purpose_vi
-    is_sales = ("sales outreach" in purpose_vi) or ("chào hàng" in purpose_vi)
-    is_event = "event invitation" in purpose_vi or "mời sự kiện" in purpose_vi
-    is_feedback = "feedback request" in purpose_vi or "yêu cầu phản hồi" in purpose_vi
-    is_partnership = "partnership inquiry" in purpose_vi or "hợp tác" in purpose_vi
-
-
-    # Xử lý CTA dựa trên require_cta và purpose
-    if require_cta and not is_leave:  # Leave request không bao giờ có CTA
-        if not has_cta_in_body(body, lang):  # tránh chèn nếu body đã có CTA
-            tpl = (variables or {}).get("_cta_template")  # nhận template đã chọn
+    is_leave = "leave request" in purpose_vi or "xin nghỉ" in purpose_vi
+    
+    # Xử lý CTA
+    if require_cta and not is_leave:
+        if not has_cta_in_body(body, lang):
+            tpl = (variables or {}).get("_cta_template")
+            pronoun = "Quý vị" if audience == "B2B" else "Anh/chị"
+            
             if is_vi(lang):
-                # Xác định xưng hô dựa trên audience
-                pronoun = "Quý vị" if audience == "B2B" else "Anh/chị"
-                
                 if tpl == "Phản hồi xác nhận":
                     body += f"\n\n{pronoun} vui lòng phản hồi email này để xác nhận giúp tôi nhé."
                 elif tpl == "Điền form":
@@ -289,12 +284,8 @@ def enforce_rules(subject: str,
                         body += f"\n\n{pronoun} có thể tải tài liệu giới thiệu tại đây: {link}"
                     else:
                         body += f"\n\n{pronoun} có thể tải tài liệu giới thiệu của chúng tôi."
-                else:  # "Đặt lịch demo" (mặc định)
-                    cta_text = f"{pronoun} có thể cho tôi biết thời gian phù hợp để trao đổi ngắn 15–20 phút không?"
-                    # Viết hoa chữ cái đầu nếu cần
-                    if cta_text and cta_text[0].islower():
-                        cta_text = cta_text[0].upper() + cta_text[1:]
-                    body += f"\n\n{cta_text}"
+                else:
+                    body += f"\n\n{pronoun} có thể cho tôi biết thời gian phù hợp để trao đổi ngắn 15–20 phút không?"
             else:
                 if tpl == "Phản hồi xác nhận":
                     body += "\n\nPlease reply to confirm at your convenience."
@@ -313,81 +304,66 @@ def enforce_rules(subject: str,
                 else:
                     body += "\n\nWould you be open to a quick 15–20 min demo next week?"
     
-    # Thêm hỗ trợ cho Apology/Status (nếu không có CTA)
-    if not require_cta or is_leave:
-        hotline_val = (variables or {}).get("hotline")
-        if (is_apology or is_status) and is_vi(lang):
-            if not re.search(r"(liên hệ|hỗ trợ|phản hồi email)", body, re.IGNORECASE):
-                contact = f"hotline {hotline_val}" if hotline_val else "hotline"
-                body += f"\n\nNếu anh/chị cần hỗ trợ thêm, vui lòng phản hồi email này hoặc liên hệ {contact}."
-        elif (is_apology or is_status) and not is_vi(lang):
-            if not re.search(r"(support|reach us|reply to this email)", body, re.IGNORECASE):
-                body += "\n\nIf you need further support, please reply to this email or contact our hotline."
-
-
-
-
-    # Xóa placeholder [Link biểu mẫu] hoặc [địa chỉ form] nếu link thực tế đã được chèn
+    # Xóa placeholder
     body = re.sub(r"\[.*?link.*?biểu mẫu.*?\]", "", body, flags=re.IGNORECASE)
     body = re.sub(r"\[.*?địa chỉ.*?form.*?\]", "", body, flags=re.IGNORECASE)
     body = re.sub(r"\[Link.*?\]", "", body, flags=re.IGNORECASE)
     body = re.sub(r"\[.*?form.*?\]", "", body, flags=re.IGNORECASE)
-    body = re.sub(r"\[.*?\]", "", body)  # Xóa tất cả placeholder còn lại
-    
-    # Xóa dòng "tại đây: ." (placeholder link trống)
+    body = re.sub(r"\[.*?\]", "", body)
     body = re.sub(r"tại đây:\s*\.\s*", "", body, flags=re.IGNORECASE)
     body = re.sub(r"tại đây\s*:\s*$", "", body, flags=re.IGNORECASE | re.MULTILINE)
     body = re.sub(r"here:\s*\.\s*", "", body, flags=re.IGNORECASE)
     body = re.sub(r"here\s*:\s*$", "", body, flags=re.IGNORECASE | re.MULTILINE)
-    
-    # Xóa dòng trống thừa sau khi xóa placeholder
     body = re.sub(r"\n\n+", "\n\n", body)
-
-    # Bảo toàn chữ ký (tránh lặp)
-    if signature:
-        body = body.rstrip()
-        if not has_signature_block(body, signature):
-            body = f"{body}\n\n{signature}" if body else signature
-
-    return subject, body
+    
+    return subject, body.rstrip()
 
 
 def normalize_signature_text(sig: str, lang: str) -> str:
-    raw = (sig or "").strip()
-    if not raw:
-        return raw
-
-    raw = raw.replace("\r\n", "\n").replace("\r", "\n")
-    lines = [line.strip() for line in raw.split("\n") if line.strip()]
-
+    """
+    Mục đích DUY NHẤT: Dịch salutation cho đúng ngôn ngữ
+    KHÔNG thêm/xóa gì cả, chỉ thay thế "Best regards" ↔ "Trân trọng"
+    """
+    if not sig or not sig.strip():
+        return ""
+    
+    sig = sig.strip()
+    
+    # Dịch salutation nếu cần
     if is_vi(lang):
-        target_salutation = "Trân trọng,"
-        sal_pattern = re.compile(r"(?i)^(trân\s*trọng|best\s*regards|warm\s*regards)\b[\s,]*?(.*)$")
+        # EN → VI
+        sig = re.sub(r'^Best regards,?\s*', 'Trân trọng,\n', sig, flags=re.IGNORECASE)
+        sig = re.sub(r'^Warm regards,?\s*', 'Trân trọng,\n', sig, flags=re.IGNORECASE)
+        sig = re.sub(r'^Sincerely,?\s*', 'Trân trọng,\n', sig, flags=re.IGNORECASE)
     else:
-        target_salutation = "Best regards,"
-        sal_pattern = re.compile(r"(?i)^(best\s*regards|trân\s*trọng|warm\s*regards)\b[\s,]*?(.*)$")
+        # VI → EN
+        sig = re.sub(r'^Trân trọng,?\s*', 'Best regards,\n', sig, flags=re.IGNORECASE)
+    
+    return sig.strip()
 
-    name_parts: list[str] = []
-
-    if lines:
-        match = sal_pattern.match(lines[0])
-        if match:
-            remainder = match.group(2).strip()
-            if remainder:
-                name_parts.append(remainder)
-        else:
-            # Dòng đầu tiên không phải salutation => coi là tên
-            name_parts.append(lines[0])
-
-        if len(lines) > 1:
-            name_parts.extend(lines[1:])
-
-    name_line = " ".join(name_parts).strip()
-
-    if not name_line:
-        return target_salutation
-
-    return f"{target_salutation}\n{name_line}"
+def get_signature_canonical(sig: str) -> str:
+    """
+    Tạo dạng chuẩn để so sánh (loại bỏ noise nhưng GIỮ CẤU TRÚC)
+    """
+    if not sig:
+        return ""
+    
+    lines = sig.strip().split('\n')
+    canonical = []
+    
+    for line in lines:
+        # Chuẩn hóa whitespace
+        line = re.sub(r'\s+', ' ', line.strip())
+        
+        # Loại bỏ dấu câu cuối dòng (nhưng GIỮ dấu phẩy sau salutation)
+        if not re.match(r'^(Best regards|Trân trọng|Warm regards|Sincerely)', line, re.IGNORECASE):
+            line = line.rstrip('.,;:')
+        
+        # Lowercase để so sánh không phân biệt hoa thường
+        if line:
+            canonical.append(line.lower())
+    
+    return '||'.join(canonical)  # Dùng delimiter rõ ràng
 
 def _canonicalize_signature_lines(lines: list[str]) -> list[str]:
     canon = []
@@ -451,24 +427,81 @@ def dedupe_signature(body: str, normalized_sig: str) -> str:
     return "\n".join(lines).rstrip()
 
 
-def has_signature_block(body: str, normalized_sig: str) -> bool:
-    if not body or not normalized_sig:
+def has_signature(body: str, signature: str) -> bool:
+    """
+    Kiểm tra xem body ĐÃ CÓ signature chưa (so sánh canonical)
+    """
+    if not body or not signature:
         return False
-
-    sig_lines = [line for line in normalized_sig.strip().splitlines() if line.strip()]
-    if not sig_lines:
+    
+    sig_canonical = get_signature_canonical(signature)
+    if not sig_canonical:
         return False
-
-    sig_canon = _canonicalize_signature_lines(sig_lines)
-    body_lines = body.rstrip().splitlines()
-    if len(body_lines) < len(sig_lines):
-        body_lines = body_lines  # keep for clarity, but will fail below
-
-    tail_lines, _ = _collect_tail_block(body_lines, len(sig_canon))
-    if not tail_lines:
+    
+    # Lấy N dòng cuối của body (N = số dòng của signature)
+    sig_lines = [l for l in signature.strip().split('\n') if l.strip()]
+    num_lines = len(sig_lines)
+    
+    body_lines = body.rstrip().split('\n')
+    if len(body_lines) < num_lines:
         return False
+    
+    # Lấy tail và so sánh canonical
+    tail_lines = body_lines[-num_lines:]
+    tail_text = '\n'.join(tail_lines)
+    tail_canonical = get_signature_canonical(tail_text)
+    
+    return tail_canonical == sig_canonical
 
-    return _canonicalize_signature_lines(tail_lines) == sig_canon
+
+def remove_signature(body: str, signature: str) -> str:
+    """
+    Xóa signature khỏi body (nếu có) - dùng canonical matching
+    """
+    if not body or not signature:
+        return body
+    
+    sig_canonical = get_signature_canonical(signature)
+    if not sig_canonical:
+        return body
+    
+    sig_lines = [l for l in signature.strip().split('\n') if l.strip()]
+    num_lines = len(sig_lines)
+    
+    body_lines = body.rstrip().split('\n')
+    
+    # Xóa từ cuối lên, chỉ xóa nếu match canonical
+    while len(body_lines) >= num_lines:
+        tail_lines = body_lines[-num_lines:]
+        tail_text = '\n'.join(tail_lines)
+        tail_canonical = get_signature_canonical(tail_text)
+        
+        if tail_canonical == sig_canonical:
+            # Xóa signature
+            body_lines = body_lines[:-num_lines]
+            # Xóa dòng trống thừa
+            while body_lines and not body_lines[-1].strip():
+                body_lines.pop()
+        else:
+            break
+    
+    return '\n'.join(body_lines)
+
+
+def add_signature(body: str, signature: str) -> str:
+    """
+    Thêm signature vào body (CHỈ KHI chưa có)
+    """
+    if not signature:
+        return body
+    
+    # Kiểm tra xem đã có chưa
+    if has_signature(body, signature):
+        return body
+    
+    # Thêm với format chuẩn: body + 2 dòng trống + signature
+    body = body.rstrip()
+    return f"{body}\n\n{signature.strip()}" if body else signature.strip()
 
 def has_cta_invite(body: str, lang: str) -> bool:
     t = (body or "").lower()
@@ -750,68 +783,84 @@ details = st.text_area("Nội dung/Chi tiết thêm (Details) – càng cụ th�
 gen_btn = st.button("Generate Email")
 
 if gen_btn:
-    # Validation: kiểm tra Details không trống
     if not st.session_state.details or not st.session_state.details.strip():
         st.error("⚠️ Vui lòng nhập nội dung chi tiết (Details) trước khi generate!")
     else:
         with st.spinner("Generating..."):
-            salutation_line = build_salutation(st.session_state.recipient, st.session_state.lang)
-
-            # Cho phép user bật/tắt CTA ở bất kỳ loại email nào
-            # Nếu user bật CTA, enforce_rules sẽ quyết định có thêm CTA hay không dựa trên purpose
-            effective_require_cta = st.session_state.get("require_cta", False)
-
-            # --- interpolate variables for details ---
-            # Chỉ thêm variables có giá trị (không trống)
-            vars_map = {}
-            if st.session_state.var_order_id and st.session_state.var_order_id.strip():
-                vars_map["order_id"] = st.session_state.var_order_id.strip()
-            if st.session_state.var_delivery_date and st.session_state.var_delivery_date.strip():
-                vars_map["delivery_date"] = st.session_state.var_delivery_date.strip()
-            if st.session_state.var_hotline and st.session_state.var_hotline.strip():
-                vars_map["hotline"] = st.session_state.var_hotline.strip()
-            if st.session_state.var_meeting_link and st.session_state.var_meeting_link.strip():
-                vars_map["meeting_link"] = st.session_state.var_meeting_link.strip()
-            vars_map["_cta_template"] = st.session_state.get("cta_template")
+            # 1. CHUẨN HÓA SIGNATURE THEO NGÔN NGỮ
+            normalized_sig = normalize_signature_text(
+                st.session_state.signature, 
+                st.session_state.lang
+            )
+            
+            # 2. XÂY DỰNG PROMPT (KHÔNG bao gồm signature trong prompt nữa)
+            #    Để tránh model tự thêm signature
+            salutation_line = build_salutation(
+                st.session_state.recipient, 
+                st.session_state.lang
+            )
+            
+            vars_map = {
+                "order_id": st.session_state.var_order_id.strip() if st.session_state.var_order_id else "",
+                "delivery_date": st.session_state.var_delivery_date.strip() if st.session_state.var_delivery_date else "",
+                "hotline": st.session_state.var_hotline.strip() if st.session_state.var_hotline else "",
+                "meeting_link": st.session_state.var_meeting_link.strip() if st.session_state.var_meeting_link else "",
+                "_cta_template": st.session_state.get("cta_template")
+            }
+            
             details_filled = interpolate_variables(st.session_state.details, vars_map)
             
-            # Normalize signature TRƯỚC khi truyền vào prompt (tránh lặp)
-            normalized_sig = normalize_signature_text(st.session_state.signature, st.session_state.lang)
-            
-            prompt = build_json_prompt(
-                st.session_state.purpose, st.session_state.tone,
-                st.session_state.recipient, details_filled,
-                st.session_state.lang, normalized_sig,
-                words=words, require_cta=effective_require_cta,
+            # 3. GỌI MODEL (signature KHÔNG trong prompt)
+            prompt = build_json_prompt_v2(  # Version mới, không có signature parameter
+                st.session_state.purpose,
+                st.session_state.tone,
+                st.session_state.recipient,
+                details_filled,
+                st.session_state.lang,
+                words=words,
+                require_cta=st.session_state.get("require_cta", False),
                 salutation_line=salutation_line,
-                variables=vars_map  # Truyền variables để model biết link thực tế
+                variables=vars_map
             )
-
-            # GỌI MODEL NGAY TRONG SPINNER
+            
             data = call_gemini_json(prompt, temperature=temperature)
-
-            subject_raw = data.get("subject", "Generated Email")
-            if (not subject_raw) or (subject_raw.strip().lower() in {"generated email", "subject"}) or (len(subject_raw.strip()) < 5):
-                subject_raw = suggest_subject(purpose, lang)
-
+            subject_raw = data.get("subject", "")
             body_raw = data.get("body", "")
-
-            # Làm sạch body trước khi enforce
-            body_raw = trim_pleasantries(body_raw, lang, purpose)
-            # signature đã normalize ở trên, chỉ cần dedupe
-            body_raw = dedupe_signature(body_raw, normalized_sig)
-            body_raw = tune_audience(body_raw, st.session_state.audience, st.session_state.lang)
-
-
-            subject, body = enforce_rules(
-                subject_raw, body_raw, normalized_sig,
-                require_cta=effective_require_cta,
-                purpose=purpose,
-                lang=lang,
+            
+            # 4. XỬ LÝ BODY
+            # 4a. Làm sạch pleasantries
+            body_clean = trim_pleasantries(body_raw, st.session_state.lang, st.session_state.purpose)
+            
+            # 4b. XÓA MỌI SIGNATURE CŨ (nếu model tự thêm)
+            body_clean = remove_signature(body_clean, normalized_sig)
+            
+            # 4c. Tune audience
+            body_clean = tune_audience(body_clean, st.session_state.audience, st.session_state.lang)
+            
+            # 4d. Enforce rules (CTA, etc) - KHÔNG xử lý signature ở đây nữa
+            subject, body = enforce_rules_v2(
+                subject_raw,
+                body_clean,
+                require_cta=st.session_state.get("require_cta", False),
+                purpose=st.session_state.purpose,
+                lang=st.session_state.lang,
                 audience=st.session_state.audience,
-                variables=vars_map  
+                variables=vars_map
             )
-            body = soften_claims(body, lang)
+            
+            # 4e. Soften claims
+            body = soften_claims(body, st.session_state.lang)
+            
+            # 5. THÊM SIGNATURE (BƯỚC CUỐI CÙNG, DUY NHẤT)
+            body = add_signature(body, normalized_sig)
+            
+            # 6. Suggest subject nếu cần
+            if not subject or subject.strip().lower() in {"generated email", "subject", ""}:
+                subject = suggest_subject(st.session_state.purpose, st.session_state.lang)
+            
+            # Trim subject length
+            if len(subject) > 60:
+                subject = subject[:57].rstrip() + "..."
 
         # Render UI (ngoài spinner)
         st.success("Generated successfully!")
