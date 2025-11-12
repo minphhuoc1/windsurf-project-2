@@ -344,8 +344,15 @@ def enforce_rules(subject: str,
     body = re.sub(r"\n\n+", "\n\n", body)
 
     # Bảo toàn chữ ký (tránh lặp)
-    if signature and signature not in body:
-        body += f"\n\n{signature}"
+    # Kiểm tra xem signature đã tồn tại trong body chưa (bất kỳ dạng nào)
+    if signature:
+        sig_lines = signature.strip().split('\n')
+        name = sig_lines[-1].strip() if sig_lines else ""
+        # Nếu tên chưa có trong body → thêm signature
+        if name and name not in body:
+            body += f"\n\n{signature}"
+        elif not name and signature not in body:
+            body += f"\n\n{signature}"
 
     return subject, body
 
@@ -370,17 +377,28 @@ def normalize_signature_text(sig: str, lang: str) -> str:
 
 def dedupe_signature(body: str, normalized_sig: str) -> str:
     # xoá chữ ký trùng cuối thư (không phân biệt khoảng trắng/hoa thường)
-    # Pattern 1: Xóa signature với salutation (Trân trọng, / Best regards, + tên)
-    pattern1 = r"(?:\n|\r|\r\n)+\s*(?:Trân trọng,|Best regards,|Warm regards,)\s*\n\s*Phuoc\s+Doan\s*$"
-    cleaned = re.sub(pattern1, "", body, flags=re.IGNORECASE)
+    if not body or not normalized_sig:
+        return body
+    
+    # Trích tên từ normalized_sig (dòng cuối)
+    sig_lines = normalized_sig.strip().split('\n')
+    name = sig_lines[-1].strip() if sig_lines else ""
+    
+    # Pattern 1: Xóa signature với salutation + tên (Trân trọng, / Best regards, + tên)
+    # Xóa bất kỳ salutation nào + tên
+    if name:
+        pattern1 = rf"(?:\n|\r|\r\n)+\s*(?:Trân\s*trọng|Best\s*regards|Warm\s*regards)[,\s]*\n\s*{re.escape(name)}\s*$"
+        cleaned = re.sub(pattern1, "", body, flags=re.IGNORECASE)
+    else:
+        cleaned = body
     
     # Pattern 2: Xóa signature chỉ có tên (nếu vẫn còn)
-    if "Phuoc Doan" in cleaned or "phuoc doan" in cleaned.lower():
-        # Kiểm tra xem có 2 lần "Phuoc Doan" không
-        count = len(re.findall(r"Phuoc\s+Doan", cleaned, re.IGNORECASE))
+    if name and name in cleaned:
+        # Kiểm tra xem có 2 lần tên không
+        count = len(re.findall(re.escape(name), cleaned, re.IGNORECASE))
         if count > 1:
             # Xóa lần cuối cùng
-            pattern2 = r"(?:\n|\r|\r\n)+\s*Phuoc\s+Doan\s*$"
+            pattern2 = rf"(?:\n|\r|\r\n)+\s*{re.escape(name)}\s*$"
             cleaned = re.sub(pattern2, "", cleaned, flags=re.IGNORECASE)
     
     return cleaned
