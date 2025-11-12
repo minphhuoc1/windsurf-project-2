@@ -384,20 +384,21 @@ def dedupe_signature(body: str, normalized_sig: str) -> str:
     sig_lines = normalized_sig.strip().split('\n')
     name = sig_lines[-1].strip() if sig_lines else ""
     
-    # Pattern 1: Xóa signature với salutation + tên (Trân trọng, / Best regards, + tên)
-    # Xóa bất kỳ salutation nào + tên
-    if name:
-        pattern1 = rf"(?:\n|\r|\r\n)+\s*(?:Trân\s*trọng|Best\s*regards|Warm\s*regards)[,\s]*\n\s*{re.escape(name)}\s*$"
-        cleaned = re.sub(pattern1, "", body, flags=re.IGNORECASE)
-    else:
-        cleaned = body
+    if not name:
+        return body
+    
+    # Pattern 1: Xóa signature với salutation + tên (có hoặc không có newline)
+    # Bắt: (salutation)(optional newline/space)(name)
+    # Ví dụ: "Best regards,\nTuyen Nguyen" hoặc "Best regards,Tuyen Nguyen"
+    pattern1 = rf"(?:\n|\r|\r\n)+\s*(?:Trân\s*trọng|Best\s*regards|Warm\s*regards)[,\s]*[\n\s]*{re.escape(name)}\s*$"
+    cleaned = re.sub(pattern1, "", body, flags=re.IGNORECASE)
     
     # Pattern 2: Xóa signature chỉ có tên (nếu vẫn còn)
-    if name and name in cleaned:
+    if name in cleaned:
         # Kiểm tra xem có 2 lần tên không
         count = len(re.findall(re.escape(name), cleaned, re.IGNORECASE))
         if count > 1:
-            # Xóa lần cuối cùng
+            # Xóa lần cuối cùng (bất kỳ dạng nào)
             pattern2 = rf"(?:\n|\r|\r\n)+\s*{re.escape(name)}\s*$"
             cleaned = re.sub(pattern2, "", cleaned, flags=re.IGNORECASE)
     
